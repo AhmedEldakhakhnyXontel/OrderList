@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "OrderList",
+  "project_id": "1732e1ac-1db3-46c3-9cab-084e2046a106"
+}
