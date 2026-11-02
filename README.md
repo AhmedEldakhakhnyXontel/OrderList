@@ -54,3 +54,9 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Ideas for later
+
+- **Money tracking**: prices, totals, and who owes whom. Deliberately left out of v1.
+- **Quantities**: v1 has none; a Member adds the same Item twice to get two.
+- **Catalog cleanup**: renaming or deleting misspelled or duplicate Items. v1 has no way to fix the Catalog.
