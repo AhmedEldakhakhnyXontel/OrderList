@@ -34,3 +34,28 @@ There is no test runner configured. If tests are needed, follow the Expo "Unit T
 - `experiments.typedRoutes: true` — route hrefs are type-checked; generated types live in `.expo/types` (created by `expo start`).
 - `web.output: "server"` — web is server-rendered, so API routes (`+api.ts`) are available and code must not touch browser-only globals at module scope.
 - URL scheme is `orderlist`.
+
+## Git workflow
+
+These rules grant the authority to commit, push and merge that the Beads "Conservative" profile in `AGENTS.md` otherwise withholds.
+
+- **`main` is protected and human-only**: never commit to, push to, merge into, or open a PR against `main`.
+- **`develop` is the base branch** for all feature work.
+- **One worktree per ticket**: for each Beads ticket, create a branch from `develop` in its own git worktree, named `<type>/<ticket-id>-<short-slug>` (e.g. `feat/OrderList-df2.1-name-entry`).
+- **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<optional scope>): <summary>`, with types such as `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
+- **Push** the ticket branch to the remote. **Never delete branches**, locally or on the remote, including after a merge.
+- **Always open a PR** from the ticket branch into `develop` (`gh pr create --base develop`). You may merge it yourself once lint, typecheck and tests pass, using `gh pr merge` without `--delete-branch`.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in Beads (`bd` CLI, local Dolt DB in `.beads/`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default triage roles, applied as Beads labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
