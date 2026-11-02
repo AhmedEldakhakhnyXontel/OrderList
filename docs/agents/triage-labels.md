@@ -12,6 +12,6 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 Labels are Beads labels, applied with `bd label add <id> <label>`; Beads creates them on first use, so nothing needs pre-creating.
 
-When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
+When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table. A `wontfix` bead is also closed: `bd close <id> --reason=wontfix`.
 
 Edit the "Label in our tracker" column to match whatever vocabulary you actually use.
