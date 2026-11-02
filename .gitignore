@@ -49,3 +49,6 @@ example
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+
+ignorednotes.ts
