@@ -51,4 +51,4 @@ example
 *.gate.lock*
 
 
-ignorednotes.ts
+ignorednotes.md
