@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project state
 
-Freshly generated from `create-expo-app` (default template). Everything under `src/` is starter/demo code (Home/Explore tabs, "Expo Starter" branding) — expect it to be replaced. `npm run reset-project` moves the starter code to `example/` and leaves a blank `src/app/`.
+Started from `create-expo-app` (default template). The starter screens are gone and `src/` is app code; the theming helpers and the splash overlay (`animated-icon`) are kept from the template.
 
 Stack: Expo SDK 58, React Native 0.88, React 19.3, TypeScript 6 (strict). Package manager is **npm** (`package-lock.json`), so use `npx`, not `bunx`.
 
@@ -25,10 +25,10 @@ Secrets and config values live in EAS environment variables; pull them into the 
 
 ## Architecture
 
-- **Routing**: Expo Router, entry is `expo-router/entry`. `src/app/_layout.tsx` is the root layout: it holds the splash screen (`preventAutoHideAsync` + `AnimatedSplashOverlay`), the navigation `ThemeProvider`, and renders `AppTabs`.
-- **Platform-split tabs**: tab navigation is defined in `src/components/app-tabs.tsx` (native, `NativeTabs` from `expo-router/native-tabs`) and `src/components/app-tabs.web.tsx` (web, headless `expo-router/ui` `Tabs`). Adding/removing a tab means editing **both** files. Note the trigger names differ: native uses the route name (`index`), web uses an arbitrary name plus `href` (`home` → `/`).
-- **`.web.tsx` / `.web.ts` overrides**: Metro picks the platform-specific file automatically (also used by `animated-icon` and `use-color-scheme`). When changing one variant, check whether its sibling needs the same change.
-- **Theming**: colors, fonts, spacing scale and layout constants live in `src/constants/theme.ts` (light/dark `Colors`, `Spacing`, `MaxContentWidth`, `BottomTabInset`). Use `useTheme()` (`src/hooks/use-theme.ts`) or `ThemedText`/`ThemedView` rather than hard-coding colors. `theme.ts` also imports `src/global.css`, which defines the CSS font variables used on web.
+- **Routing**: Expo Router, entry is `expo-router/entry`. `src/app/_layout.tsx` is the root layout: it holds the splash screen (`preventAutoHideAsync` + `AnimatedSplashOverlay`), the navigation `ThemeProvider` and `MemberProvider`, and renders a `Stack` that sets each route's header title.
+- **Routes**: `index` is the Order screen; it redirects to `/name` while no Member is remembered. `name` asks for the Member's name, remembers it, and returns with `router.dismissTo('/')`. The current Member comes from `useMember()` (`src/hooks/use-member.tsx`), persisted in AsyncStorage.
+- **`.web.tsx` / `.web.ts` overrides**: Metro picks the platform-specific file automatically (used by `animated-icon` and `use-color-scheme`). When changing one variant, check whether its sibling needs the same change.
+- **Theming**: colors, fonts, spacing scale and layout constants live in `src/constants/theme.ts` (light/dark `Colors`, `Spacing`, `MaxContentWidth`). Use `useTheme()` (`src/hooks/use-theme.ts`) or `ThemedText`/`ThemedView` rather than hard-coding colors. `theme.ts` also imports `src/global.css`, which defines the CSS font variables used on web.
 - **Path aliases** (`tsconfig.json`): `@/*` → `src/*`, `@/assets/*` → `assets/*`.
 
 ## Config notes (`app.json`)
