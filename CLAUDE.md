@@ -17,11 +17,14 @@ npm start            # expo start (also: npm run android | ios | web)
 npm run lint         # expo lint
 npx tsc --noEmit     # typecheck
 npx expo export      # bundle every platform; catches Metro resolution errors tsc misses
+npx firebase <cmd>   # Firebase CLI: the firebase-tools devDependency, not on the global PATH
 ```
 
 There is no test runner configured. If tests are needed, follow the Expo "Unit Testing with Jest" guide rather than assuming a setup exists.
 
 Secrets and config values live in EAS environment variables; pull them into the gitignored `.env.local` with `npx eas-cli@latest env:pull --environment development`. Variables prefixed `EXPO_PUBLIC_` are inlined into the app bundle, so never give a real secret that prefix (the Firebase web config is public by design). Never commit or print a value.
+
+Firestore's production-mode Rules deny the client SDK, but the saved `firebase login` is a project owner, and owner tokens skip Rules on the Firestore REST API, so data can be checked from a Node script. The CLI has no command that reads a document; get the token from firebase-tools' own modules: `requireAuth(getGlobalDefaultAccount())` (`lib/requireAuth`, `lib/auth`), then `getAccessToken()` (`lib/apiv2`).
 
 ## Architecture
 
