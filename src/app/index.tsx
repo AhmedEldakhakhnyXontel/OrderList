@@ -4,10 +4,19 @@ import { Pressable, StyleSheet } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import type { OrderListStatus } from '@/data/firestore-data';
 import { useMember } from '@/hooks/use-member';
+import { useTodaysOrderListStatus } from '@/hooks/use-order-list-status';
+
+const STATUS_LABELS: Record<OrderListStatus, string> = {
+  none: 'No list today',
+  open: 'Open',
+  locked: 'Locked',
+};
 
 export default function OrderScreen() {
   const { member, isLoading } = useMember();
+  const status = useTodaysOrderListStatus();
 
   if (isLoading) {
     return <ThemedView style={styles.container} />;
@@ -19,7 +28,14 @@ export default function OrderScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedView style={styles.content}>
-        <ThemedText type="subtitle">Hi, {member.name}</ThemedText>
+        <ThemedView style={styles.greeting}>
+          <ThemedText type="subtitle">Hi, {member.name}</ThemedText>
+          {status && (
+            <ThemedView type="backgroundSelected" style={styles.pill}>
+              <ThemedText type="small">{STATUS_LABELS[status]}</ThemedText>
+            </ThemedView>
+          )}
+        </ThemedView>
 
         <Link href="/name" asChild>
           <Pressable style={({ pressed }) => pressed && styles.pressed}>
@@ -44,6 +60,17 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     gap: Spacing.three,
     alignItems: 'flex-start',
+  },
+  greeting: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: Spacing.three,
+  },
+  pill: {
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.one,
+    borderRadius: Spacing.five,
   },
   pressed: {
     opacity: 0.7,
