@@ -52,3 +52,6 @@ example
 
 
 ignorednotes.md
+
+# agent ticket worktrees (see CLAUDE.md Git workflow)
+.worktrees/
