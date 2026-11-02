@@ -1,6 +1,6 @@
 # Issue tracker: Beads
 
-Issues and specs for this repo live in Beads (`bd` CLI, local Dolt DB in `.beads/`). Run `bd prime` for the full command reference. There is no git remote: never push, pull or run remote sync.
+Issues and specs for this repo live in Beads (`bd` CLI, local Dolt DB in `.beads/`). Run `bd prime` for the full command reference. The DB syncs through `refs/dolt/data` on the git remote; the `closer` runs `bd dolt push` after closing a ticket. In each clone run `git config beads.role maintainer`: with the HTTPS remote `bd` defaults to `contributor` and routes issues to `~/.beads-planning` instead of this repo.
 
 ## Conventions
 

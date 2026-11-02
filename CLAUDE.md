@@ -14,11 +14,14 @@ Stack: Expo SDK 58, React Native 0.88, React 19.3, TypeScript 6 (strict). Packag
 
 ```bash
 npm start            # expo start (also: npm run android | ios | web)
-npm run lint         # expo lint — no ESLint config is committed yet; first run scaffolds one
+npm run lint         # expo lint
 npx tsc --noEmit     # typecheck
+npx expo export      # bundle every platform; catches Metro resolution errors tsc misses
 ```
 
 There is no test runner configured. If tests are needed, follow the Expo "Unit Testing with Jest" guide rather than assuming a setup exists.
+
+Secrets and config values live in EAS environment variables; pull them into the gitignored `.env.local` with `npx eas-cli@latest env:pull --environment development`. Variables prefixed `EXPO_PUBLIC_` are inlined into the app bundle, so never give a real secret that prefix (the Firebase web config is public by design). Never commit or print a value.
 
 ## Architecture
 
@@ -40,11 +43,18 @@ There is no test runner configured. If tests are needed, follow the Expo "Unit T
 These rules grant the authority to commit, push and merge that the Beads "Conservative" profile in `AGENTS.md` otherwise withholds.
 
 - **`main` is protected and human-only**: never commit to, push to, merge into, or open a PR against `main`.
-- **`develop` is the base branch** for all feature work.
-- **One worktree per ticket**: for each Beads ticket, create a branch from `develop` in its own git worktree, named `<type>/<ticket-id>-<short-slug>` (e.g. `feat/OrderList-df2.1-name-entry`).
+- **`develop` is the base branch**: all ticket work branches off it and lands on it through a merged PR. The main checkout stays on `develop` and holds no ticket work.
+- **One worktree per ticket**: `git worktree add .worktrees/<ticket-id> -b <type>/<ticket-id>-<short-slug> develop` (e.g. `.worktrees/OrderList-df2.1` on `feat/OrderList-df2.1-name-entry`; `.worktrees/` is gitignored). Then copy the gitignored `.env.local` and `expo-env.d.ts` in from the main checkout and run `npm ci` in the worktree.
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<optional scope>): <summary>`, with types such as `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
-- **Push** the ticket branch to the remote. **Never delete branches**, locally or on the remote, including after a merge.
-- **Always open a PR** from the ticket branch into `develop` (`gh pr create --base develop`). You may merge it yourself once lint, typecheck and tests pass, using `gh pr merge` without `--delete-branch`.
+- **Micro commits**: when a change is large or spans more than one ticket, split it into small commits, one logical change (and at most one ticket) each, so each can be reviewed and reverted on its own. Don't run the gates on each micro commit; run them on the branch tip and on the merge result before it lands on `develop`.
+- **Gates**: `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npx expo export`, run in the worktree.
+- **Landing**: when a ticket is done, the main conversation reads the worker's result and spawns the `closer` subagent (`.claude/agents/closer.md`) with the worktree path and the ticket id, one closer at a time so merges into `develop` stay serialised. The closer pushes the branch, merges it into `develop` through a PR once the gates pass, closes the bead, and spawns the `cleaner` (`.claude/agents/cleaner.md`) to remove the worktree.
+- **Never delete branches**, locally or on the remote, including after a merge.
+- **Parallel agents**: run at most 3 at once.
+
+## Documentation
+
+- `docs/nonfunctional-decisions.md` logs non-functional decisions, newest first, as date, decision, and why: stack, libraries, tooling, AI skills/plugins. Add an entry whenever such a choice is made between alternatives. Decisions that shape the code (architecture, components, behaviour) go in `docs/adr/` instead. Create the file with its first entry, not before.
 
 ## Agent skills
 
