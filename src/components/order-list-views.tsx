@@ -4,23 +4,36 @@ import { Pressable, StyleSheet } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
-import { useByMember, useShopping } from '@/hooks/use-order-list-views';
+import { useByMember, usePastOrderLists, useShopping } from '@/hooks/use-order-list-views';
 
-type ViewName = 'shopping' | 'byMember';
+type ViewName = 'shopping' | 'byMember' | 'history';
 
 const VIEW_LABELS: Record<ViewName, string> = {
   shopping: 'Shopping',
   byMember: 'By member',
+  history: 'History',
 };
 
-/** The Admin's Shopping / By member switch over one Order List's lines. Read-only. */
-export function OrderListViews({ orderListId }: { orderListId: string }) {
+/**
+ * The Admin's Shopping / By member switch over one Order List's lines, with a History option
+ * when `withHistory` is set. Read-only.
+ */
+export function OrderListViews({
+  orderListId,
+  withHistory = false,
+}: {
+  orderListId: string;
+  withHistory?: boolean;
+}) {
   const [view, setView] = useState<ViewName>('shopping');
+  const options: ViewName[] = withHistory
+    ? ['shopping', 'byMember', 'history']
+    : ['shopping', 'byMember'];
 
   return (
     <ThemedView type="backgroundElement" style={styles.views}>
       <ThemedView type="backgroundElement" style={styles.switch}>
-        {(['shopping', 'byMember'] as const).map((option) => (
+        {options.map((option) => (
           <Pressable
             key={option}
             onPress={() => setView(option)}
@@ -35,11 +48,9 @@ export function OrderListViews({ orderListId }: { orderListId: string }) {
           </Pressable>
         ))}
       </ThemedView>
-      {view === 'shopping' ? (
-        <ShoppingView orderListId={orderListId} />
-      ) : (
-        <ByMemberView orderListId={orderListId} />
-      )}
+      {view === 'shopping' && <ShoppingView orderListId={orderListId} />}
+      {view === 'byMember' && <ByMemberView orderListId={orderListId} />}
+      {view === 'history' && <HistoryView />}
     </ThemedView>
   );
 }
@@ -73,6 +84,36 @@ function ByMemberView({ orderListId }: { orderListId: string }) {
   ));
 }
 
+/** Past Order Lists by date, newest first; choosing one shows its views, read-only. */
+function HistoryView() {
+  const orderListIds = usePastOrderLists();
+  const [chosenId, setChosenId] = useState<string | null>(null);
+
+  if (orderListIds?.length === 0) {
+    return (
+      <ThemedText type="small" themeColor="textSecondary">
+        No past Order Lists yet.
+      </ThemedText>
+    );
+  }
+  return orderListIds?.map((orderListId) => (
+    <ThemedView key={orderListId} type="backgroundElement" style={styles.pastOrderList}>
+      <Pressable
+        onPress={() => setChosenId(orderListId === chosenId ? null : orderListId)}
+        style={({ pressed }) => pressed && styles.pressed}>
+        <ThemedView
+          type={orderListId === chosenId ? 'backgroundSelected' : 'background'}
+          style={styles.button}>
+          <ThemedText type={orderListId === chosenId ? 'smallBold' : 'small'}>
+            {orderListId}
+          </ThemedText>
+        </ThemedView>
+      </Pressable>
+      {orderListId === chosenId && <OrderListViews orderListId={orderListId} />}
+    </ThemedView>
+  ));
+}
+
 function NoOrders() {
   return (
     <ThemedText type="small" themeColor="textSecondary">
@@ -89,6 +130,11 @@ const styles = StyleSheet.create({
   switch: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  pastOrderList: {
+    alignSelf: 'stretch',
+    alignItems: 'flex-start',
     gap: Spacing.two,
   },
   pressed: {

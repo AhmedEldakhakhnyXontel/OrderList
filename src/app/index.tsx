@@ -117,7 +117,7 @@ export default function OrderScreen() {
                   {adminError}
                 </ThemedText>
               )}
-              <OrderListViews orderListId={getAppData().todaysOrderListId()} />
+              <OrderListViews orderListId={getAppData().todaysOrderListId()} withHistory />
             </ThemedView>
           )}
 
