@@ -10,7 +10,13 @@ import { request } from 'node:http';
 import { deleteApp, getApps, initializeApp } from 'firebase/app';
 import { connectFirestoreEmulator, doc, getFirestore, setDoc } from 'firebase/firestore';
 
-import { createFirestoreData, type Clock, type OrderListStatus } from '@/data/firestore-data';
+import {
+  createFirestoreData,
+  isOrderListNotOpenError,
+  type Clock,
+  type OrderLine,
+  type OrderListStatus,
+} from '@/data/firestore-data';
 
 const projectId = 'demo-orderlist';
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
@@ -45,6 +51,28 @@ function firstStatus(clock: Clock) {
       resolve(status);
     });
   });
+}
+
+const ahmed = { key: 'ahmed', name: 'Ahmed' };
+const sara = { key: 'sara', name: 'Sara' };
+
+/** The first lines a watcher of a Member's Order in today's Order List sees. */
+function firstOrder(clock: Clock, memberKey: string) {
+  return new Promise<OrderLine[]>((resolve) => {
+    const stop = createFirestoreData(newDevice(), clock).watchMyOrder(memberKey, (lines) => {
+      stop();
+      resolve(lines);
+    });
+  });
+}
+
+async function firstItemNames(clock: Clock, memberKey: string) {
+  return (await firstOrder(clock, memberKey)).map((line) => line.itemName);
+}
+
+/** Resolves to whether the Rules refused `change` because the Order List isn't Open. */
+function isRefused(change: Promise<unknown>) {
+  return change.then(() => false, isOrderListNotOpenError);
 }
 
 /** Empties the emulator's database. Jest's `fetch` here is Expo's test stub, so this uses Node's own HTTP. */
@@ -162,4 +190,79 @@ test('a client cannot change the PIN', async () => {
   const data = createFirestoreData(db, justAfterMidnight);
   expect(await data.checkAdminPin('1357')).toBe(false);
   expect(await data.checkAdminPin('2468')).toBe(true);
+});
+
+test('an Item name is trimmed, and an empty one is rejected', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+
+  await data.addItem(ahmed, '  Bag of chips  ');
+  await expect(data.addItem(ahmed, '   ')).rejects.toThrow();
+
+  expect(await firstItemNames(justBeforeMidnight, 'ahmed')).toEqual(['Bag of chips']);
+});
+
+test('a new Item joins the Catalog, and a match in any case reuses it as first entered', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+
+  await data.addItem(ahmed, 'Bag of chips');
+  await data.addItem(sara, ' BAG OF CHIPS ');
+  await data.addItem(sara, 'Juice');
+  await data.addItem(ahmed, 'juice');
+
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Bag of chips', 'Juice']);
+  expect(await firstItemNames(justAfterMidnight, 'sara')).toEqual(['Bag of chips', 'Juice']);
+});
+
+test('the same Item added twice shows twice, and removing one leaves one', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(ahmed, 'Juice');
+  await data.addItem(ahmed, 'Juice');
+
+  const lines = await firstOrder(justAfterMidnight, 'ahmed');
+  expect(lines.map((line) => line.itemName)).toEqual(['Juice', 'Juice']);
+
+  await data.removeOrderLine(lines[0].id);
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Juice']);
+});
+
+test('my Order shows only my Items, and updates live', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  const seen: string[][] = [];
+
+  await new Promise<void>((resolve) => {
+    const watcher = createFirestoreData(newDevice(), justBeforeMidnight);
+    const stop = watcher.watchMyOrder('ahmed', (lines) => {
+      seen.push(lines.map((line) => line.itemName));
+      if (seen.length === 1) {
+        data.addItem(sara, 'Juice').then(() => data.addItem(ahmed, 'Bag of chips'));
+      } else {
+        stop();
+        resolve();
+      }
+    });
+  });
+
+  expect(seen).toEqual([[], ['Bag of chips']]);
+});
+
+test('adding and removing are refused while the list is Locked, and work again after unlock', async () => {
+  const admin = createFirestoreData(db, justAfterMidnight);
+  await admin.openTodaysOrderList();
+  const member = createFirestoreData(newDevice(), justBeforeMidnight);
+  await member.addItem(ahmed, 'Juice');
+  const [juice] = await firstOrder(justAfterMidnight, 'ahmed');
+
+  await admin.lockTodaysOrderList();
+  expect(await isRefused(member.addItem(ahmed, 'Bag of chips'))).toBe(true);
+  expect(await isRefused(member.removeOrderLine(juice.id))).toBe(true);
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Juice']);
+
+  await admin.unlockTodaysOrderList();
+  await member.addItem(ahmed, 'Bag of chips');
+  await member.removeOrderLine(juice.id);
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Bag of chips']);
 });

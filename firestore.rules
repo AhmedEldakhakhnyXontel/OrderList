@@ -7,6 +7,18 @@ service cloud.firestore {
     // One document per day, id = the local date (YYYY-MM-DD).
     match /orderLists/{orderListId} {
       allow read, write: if true;
+
+      // One document per Item a Member added, so the same Item added twice is two lines.
+      // Changes are refused unless the parent Order List is Open: a Locked list never changes.
+      match /orderLines/{lineId} {
+        allow read: if true;
+        allow write: if get(/databases/$(database)/documents/orderLists/$(orderListId)).data.status == 'open';
+      }
+    }
+
+    // One document per Item, id = the trimmed, lower-cased name (field name: as first entered).
+    match /catalog/{itemId} {
+      allow read, write: if true;
     }
 
     // The Admin PIN (field pin), set in the Firebase console. Clients read it to check the
