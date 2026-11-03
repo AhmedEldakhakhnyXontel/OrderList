@@ -1,0 +1,12 @@
+rules_version = '2';
+
+// Explicit Rules, never test-mode ones (those expire). Nobody signs in to Firebase,
+// so reads and writes are open to every client. Anything not matched here is refused.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // One document per day, id = the local date (YYYY-MM-DD).
+    match /orderLists/{orderListId} {
+      allow read, write: if true;
+    }
+  }
+}
