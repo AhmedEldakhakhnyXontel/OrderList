@@ -56,6 +56,22 @@ function clearDatabase() {
   });
 }
 
+/**
+ * Stands in for the Admin setting the PIN in the Firebase console. Clients can't write the
+ * PIN, so this goes through the emulator's REST API as the owner, which skips the Rules.
+ */
+function setAdminPin(pin: string) {
+  const url = `http://${emulatorHost}/v1/projects/${projectId}/databases/(default)/documents/config/admin`;
+  return new Promise<number | undefined>((resolve, reject) => {
+    request(url, { method: 'PATCH', headers: { Authorization: 'Bearer owner' } }, (response) => {
+      response.resume();
+      resolve(response.statusCode);
+    })
+      .on('error', reject)
+      .end(JSON.stringify({ fields: { pin: { stringValue: pin } } }));
+  });
+}
+
 beforeEach(async () => {
   expect(await clearDatabase()).toBe(200);
 });
@@ -95,4 +111,27 @@ test('a watcher sees the status change', async () => {
   });
 
   expect(seen).toEqual(['open', 'locked']);
+});
+
+test('the right PIN passes the Admin check', async () => {
+  expect(await setAdminPin('2468')).toBe(200);
+
+  expect(await createFirestoreData(db, justAfterMidnight).checkAdminPin('2468')).toBe(true);
+});
+
+test('a wrong PIN fails the Admin check', async () => {
+  expect(await setAdminPin('2468')).toBe(200);
+
+  expect(await createFirestoreData(db, justAfterMidnight).checkAdminPin('1357')).toBe(false);
+});
+
+test('a client cannot change the PIN', async () => {
+  expect(await setAdminPin('2468')).toBe(200);
+
+  await expect(setDoc(doc(db, 'config', 'admin'), { pin: '1357' })).rejects.toMatchObject({
+    code: 'permission-denied',
+  });
+  const data = createFirestoreData(db, justAfterMidnight);
+  expect(await data.checkAdminPin('1357')).toBe(false);
+  expect(await data.checkAdminPin('2468')).toBe(true);
 });
