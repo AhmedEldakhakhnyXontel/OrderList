@@ -51,7 +51,7 @@ These rules grant the authority to commit, push and merge that the Beads "Conser
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<optional scope>): <summary>`, with types such as `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
 - **Micro commits**: when a change is large or spans more than one ticket, split it into small commits, one logical change (and at most one ticket) each, so each can be reviewed and reverted on its own. Don't run the gates on each micro commit; run them on the branch tip and on the merge result before it lands on `develop`.
 - **Gates**: `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npx expo export`, run in the worktree.
-- **Landing**: when a ticket is done, the main conversation reads the worker's result and spawns the `closer` subagent (`.claude/agents/closer.md`) with the worktree path and the ticket id, one closer at a time so merges into `develop` stay serialised. The closer pushes the branch, merges it into `develop` through a PR once the gates pass, closes the bead, and spawns the `cleaner` (`.claude/agents/cleaner.md`) to remove the worktree.
+- **Landing**: when a ticket is done, the main conversation reads the worker's result and spawns the `closer` subagent (`.claude/agents/closer.md`) with the worktree path and the ticket id, one closer at a time so merges into `develop` stay serialised. The closer pushes the branch, merges it into `develop` through a PR once the `gater` (`.claude/agents/gater.md`) reports the gates pass, closes the bead, and spawns the `cleaner` (`.claude/agents/cleaner.md`) to remove the worktree.
 - **Never delete branches**, locally or on the remote, including after a merge.
 - **Parallel agents**: run at most 3 at once.
 
