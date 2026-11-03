@@ -15,7 +15,7 @@ const STATUS_LABELS: Record<OrderListStatus, string> = {
 };
 
 export default function OrderScreen() {
-  const { member, isLoading } = useMember();
+  const { member, isAdmin, isLoading } = useMember();
   const status = useTodaysOrderListStatus();
 
   if (isLoading) {
@@ -28,6 +28,13 @@ export default function OrderScreen() {
   return (
     <ThemedView style={styles.container}>
       <ThemedView style={styles.content}>
+        {/* The Admin's controls; only the Admin ever sees this card. */}
+        {isAdmin && (
+          <ThemedView type="backgroundElement" style={styles.adminCard}>
+            <ThemedText type="smallBold">Admin</ThemedText>
+          </ThemedView>
+        )}
+
         <ThemedView style={styles.greeting}>
           <ThemedText type="subtitle">Hi, {member.name}</ThemedText>
           {status && (
@@ -60,6 +67,11 @@ const styles = StyleSheet.create({
     padding: Spacing.four,
     gap: Spacing.three,
     alignItems: 'flex-start',
+  },
+  adminCard: {
+    alignSelf: 'stretch',
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
   },
   greeting: {
     flexDirection: 'row',
