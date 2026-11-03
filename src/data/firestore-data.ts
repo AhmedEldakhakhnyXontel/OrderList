@@ -8,6 +8,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  documentId,
   getDoc,
   getDocs,
   onSnapshot,
@@ -173,6 +174,21 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
           orders.set(memberKey, order);
         }
         onOrders([...orders.values()].sort((a, b) => a.memberKey.localeCompare(b.memberKey)));
+      });
+    },
+
+    /**
+     * Calls `onOrderListIds` now and on every change, with the id (the date) of every Order
+     * List before today's, newest first. Returns a function that stops watching.
+     */
+    watchPastOrderLists(onOrderListIds: (orderListIds: string[]) => void) {
+      const past = query(
+        collection(db, 'orderLists'),
+        where(documentId(), '<', toOrderListId(clock())),
+      );
+      // Documents come in id order, and an id is a YYYY-MM-DD date, so oldest first.
+      return onSnapshot(past, (snapshot) => {
+        onOrderListIds(snapshot.docs.map((orderList) => orderList.id).reverse());
       });
     },
 
