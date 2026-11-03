@@ -45,6 +45,45 @@ Join our community of developers creating universal apps.
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
 
+## Deploying
+
+The Firebase config lives in EAS environment variables (`development`, `preview` and `production`), never in git. Run these from the repo root after `npx eas-cli@latest login`.
+
+### Redeploy the web app (EAS Hosting)
+
+```bash
+npx eas-cli@latest env:pull --environment production   # overwrites .env.local with the production values
+npx expo export --platform web                         # re-export before every deploy
+npx eas-cli@latest deploy --prod --environment production
+```
+
+`EXPO_PUBLIC_` variables are inlined at export time, so the pull must come before the export.
+
+### Build the Android APK (EAS Build)
+
+```bash
+npx eas-cli@latest build --platform android --profile preview
+```
+
+The `preview` profile in `eas.json` builds an internal-distribution APK with the `preview` environment and the `preview` update channel. Open the install link from the build page on the phone. Rebuild only for native changes (a new native library, an SDK upgrade), and bump `version` in `app.json` first.
+
+### Publish an update (EAS Update)
+
+```bash
+npx eas-cli@latest update --channel preview --environment preview --platform android --message "What changed"
+```
+
+Installed APKs download it when the app opens and apply it on the next restart. The runtime version follows `version` in `app.json` (`appVersion` policy), so an update reaches only APKs built from the same `version`. EAS Update doesn't cover web: redeploy it instead.
+
+### Deploy the Firestore Security Rules
+
+```bash
+npm test                                      # the tests run against these Rules in the emulator
+npx firebase deploy --only firestore:rules    # deploys firestore.rules to the .firebaserc default project
+```
+
+The Rules were first deployed with OrderList-df2.3.
+
 ## Ideas for later
 
 - **Money tracking**: prices, totals, and who owes whom. Deliberately left out of v1.
