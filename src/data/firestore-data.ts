@@ -4,7 +4,7 @@
  * point it at the emulator and fix the date.
  */
 
-import { doc, onSnapshot, type Firestore } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, type Firestore } from 'firebase/firestore';
 
 /** The status pill's states for today's Order List. */
 export type OrderListStatus = 'none' | 'open' | 'locked';
@@ -32,6 +32,12 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
           onStatus(snapshot.get('status') === 'locked' ? 'locked' : 'open');
         }
       });
+    },
+
+    /** Resolves to whether `pin` is the Admin PIN, read from Firestore and compared on the device. */
+    async checkAdminPin(pin: string) {
+      const snapshot = await getDoc(doc(db, 'config', 'admin'));
+      return snapshot.get('pin') === pin;
     },
   };
 }
