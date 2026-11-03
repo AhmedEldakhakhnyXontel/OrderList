@@ -14,8 +14,10 @@ import {
   createFirestoreData,
   isOrderListNotOpenError,
   type Clock,
+  type MemberOrder,
   type OrderLine,
   type OrderListStatus,
+  type ShoppingItem,
 } from '@/data/firestore-data';
 
 const projectId = 'demo-orderlist';
@@ -69,6 +71,38 @@ function firstOrder(clock: Clock, memberKey: string) {
 
 async function firstItemNames(clock: Clock, memberKey: string) {
   return (await firstOrder(clock, memberKey)).map((line) => line.itemName);
+}
+
+/** What the Admin reads in the Shopping view: each Item with its total count. */
+function describeShopping(items: ShoppingItem[]) {
+  return items.map((item) => `${item.count} ${item.itemName}`);
+}
+
+/** What the Admin reads in the By member view: each Member with their Items. */
+function describeByMember(orders: MemberOrder[]) {
+  return orders.map((order) => `${order.memberName}: ${order.itemNames.join(', ')}`);
+}
+
+/** The first Shopping view a watcher of today's Order List sees. */
+function firstShopping(clock: Clock) {
+  return new Promise<string[]>((resolve) => {
+    const data = createFirestoreData(newDevice(), clock);
+    const stop = data.watchShopping(data.todaysOrderListId(), (items) => {
+      stop();
+      resolve(describeShopping(items));
+    });
+  });
+}
+
+/** The first By member view a watcher of today's Order List sees. */
+function firstByMember(clock: Clock) {
+  return new Promise<string[]>((resolve) => {
+    const data = createFirestoreData(newDevice(), clock);
+    const stop = data.watchByMember(data.todaysOrderListId(), (orders) => {
+      stop();
+      resolve(describeByMember(orders));
+    });
+  });
 }
 
 /** Resolves to whether the Rules refused `change` because the Order List isn't Open. */
@@ -248,6 +282,74 @@ test('my Order shows only my Items, and updates live', async () => {
   });
 
   expect(seen).toEqual([[], ['Bag of chips']]);
+});
+
+test('Shopping totals each Item across all Orders; one Member adding it twice counts 2', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(ahmed, 'Juice');
+  await data.addItem(ahmed, 'juice');
+  await data.addItem(sara, 'Bag of chips');
+  await data.addItem(sara, 'Juice');
+
+  expect(await firstShopping(justBeforeMidnight)).toEqual(['1 Bag of chips', '3 Juice']);
+});
+
+test('By member groups Items per Member, matching names case-insensitively', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(sara, 'Juice');
+  await data.addItem(ahmed, 'Bag of chips');
+  await data.addItem({ key: 'ahmed', name: 'AHMED' }, 'Juice');
+  await data.addItem(ahmed, 'Juice');
+
+  expect(await firstByMember(justBeforeMidnight)).toEqual([
+    'Ahmed: Bag of chips, Juice, Juice',
+    'Sara: Juice',
+  ]);
+});
+
+test('Shopping and By member update live as Members add and remove Items', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(ahmed, 'Juice');
+  const [juice] = await firstOrder(justAfterMidnight, 'ahmed');
+  const watcher = createFirestoreData(newDevice(), justBeforeMidnight);
+  const shopping: string[][] = [];
+  const byMember: string[][] = [];
+
+  await new Promise<void>((resolve) => {
+    // Each change happens once both views have seen the one before.
+    function next() {
+      if (shopping.length !== byMember.length) {
+        return;
+      }
+      if (shopping.length === 1) {
+        data.addItem(sara, 'Bag of chips');
+      } else if (shopping.length === 2) {
+        data.removeOrderLine(juice.id);
+      } else {
+        stopShopping();
+        stopByMember();
+        resolve();
+      }
+    }
+    const stopShopping = watcher.watchShopping(watcher.todaysOrderListId(), (items) => {
+      shopping.push(describeShopping(items));
+      next();
+    });
+    const stopByMember = watcher.watchByMember(watcher.todaysOrderListId(), (orders) => {
+      byMember.push(describeByMember(orders));
+      next();
+    });
+  });
+
+  expect(shopping).toEqual([['1 Juice'], ['1 Bag of chips', '1 Juice'], ['1 Bag of chips']]);
+  expect(byMember).toEqual([
+    ['Ahmed: Juice'],
+    ['Ahmed: Juice', 'Sara: Bag of chips'],
+    ['Sara: Bag of chips'],
+  ]);
 });
 
 test('adding and removing are refused while the list is Locked, and work again after unlock', async () => {
