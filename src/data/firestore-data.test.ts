@@ -291,6 +291,30 @@ test('an Item name is trimmed, and an empty one is rejected', async () => {
   expect(await firstItemNames(justBeforeMidnight, 'ahmed')).toEqual(['Bag of chips']);
 });
 
+test('a name Firestore cannot use as an id is rejected with a clear message, changing nothing', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(ahmed, 'Juice');
+
+  for (const name of ['a/b', '..', '__x__']) {
+    await expect(data.addItem(ahmed, name)).rejects.toThrow(
+      'An Item name can\'t contain "/", be "." or "..", start and end with "__", or be too long.',
+    );
+  }
+
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Juice']);
+  expect(await firstCatalog('ahmed')).toEqual({ usuals: ['Juice'], everythingElse: [] });
+});
+
+test('an Item name with a dot inside is accepted', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+
+  await data.addItem(ahmed, 'Dr. Pepper');
+
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Dr. Pepper']);
+});
+
 test('a new Item joins the Catalog, and a match in any case reuses it as first entered', async () => {
   const data = createFirestoreData(db, justAfterMidnight);
   await data.openTodaysOrderList();
