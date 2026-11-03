@@ -7,7 +7,6 @@
 import {
   arrayUnion,
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -15,7 +14,6 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
   type Firestore,
   type QueryDocumentSnapshot,
@@ -88,11 +86,12 @@ function oldestFirst(lines: QueryDocumentSnapshot[]) {
 }
 
 export function createFirestoreData(db: Firestore, clock: Clock) {
-  /** Rejects if today has no Order List. */
+  /** Rejects if today has no Order List, or with no connection. */
   function setTodaysOrderListStatus(status: 'open' | 'locked') {
-    return updateDoc(doc(db, 'orderLists', toOrderListId(clock())), {
-      status,
-      updatedAt: serverTimestamp(),
+    const today = doc(db, 'orderLists', toOrderListId(clock()));
+    // A transaction, because offline a plain write waits in the cache and never fails.
+    return runTransaction(db, async (transaction) => {
+      transaction.update(today, { status, updatedAt: serverTimestamp() });
     });
   }
 
@@ -265,9 +264,16 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
       });
     },
 
-    /** Removes one line from today's Order List. Rejects if the Rules refuse because it isn't Open. */
+    /**
+     * Removes one line from today's Order List. Rejects with no connection, or if the Rules
+     * refuse because it isn't Open.
+     */
     removeOrderLine(lineId: string) {
-      return deleteDoc(doc(todaysOrderLines(), lineId));
+      const line = doc(todaysOrderLines(), lineId);
+      // A transaction, because offline a plain write waits in the cache and never fails.
+      return runTransaction(db, async (transaction) => {
+        transaction.delete(line);
+      });
     },
 
     /** Resolves to whether `pin` is the Admin PIN, read from Firestore and compared on the device. */
