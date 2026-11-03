@@ -9,6 +9,7 @@ import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { getAppData } from '@/data/app-data';
 import {
   isOrderListNotOpenError,
+  itemNameProblem,
   type CatalogItem,
   type OrderListStatus,
 } from '@/data/firestore-data';
@@ -77,6 +78,11 @@ export default function OrderScreen() {
   async function addTypedItem(forMember: Member, name: string) {
     if (!name.trim()) {
       setOrderError('Please type an Item name.');
+      return;
+    }
+    const problem = itemNameProblem(name);
+    if (problem) {
+      setOrderError(problem);
       return;
     }
     setIsAdding(true);
