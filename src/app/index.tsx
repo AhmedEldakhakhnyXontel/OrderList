@@ -2,6 +2,7 @@ import { Link, Redirect } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput } from 'react-native';
 
+import { OrderListViews } from '@/components/order-list-views';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -153,6 +154,7 @@ export default function OrderScreen() {
                   {adminError}
                 </ThemedText>
               )}
+              <OrderListViews orderListId={getAppData().todaysOrderListId()} />
             </ThemedView>
           )}
 

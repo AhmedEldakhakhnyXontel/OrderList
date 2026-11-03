@@ -46,6 +46,23 @@ export type Catalog = {
   everythingElse: CatalogItem[];
 };
 
+/** One Item in an Order List's Shopping view. */
+export type ShoppingItem = {
+  itemId: string;
+  itemName: string;
+  /** How many lines hold this Item across all Orders. */
+  count: number;
+};
+
+/** One Member's Order in an Order List's By member view. */
+export type MemberOrder = {
+  memberKey: string;
+  /** The Member's name as in their first line. */
+  memberName: string;
+  /** One name per line, oldest first. */
+  itemNames: string[];
+};
+
 /** True when the Rules refused a change to an Order because its Order List isn't Open. */
 export function isOrderListNotOpenError(error: unknown) {
   return (error as { code?: unknown } | null)?.code === 'permission-denied';
@@ -63,6 +80,13 @@ function toOrderListId(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
+/** Sorts lines oldest first; a line still being written has an estimated time. */
+function oldestFirst(lines: QueryDocumentSnapshot[]) {
+  const addedAt = (line: QueryDocumentSnapshot) =>
+    (line.get('addedAt', { serverTimestamps: 'estimate' }) as Timestamp).toMillis();
+  return [...lines].sort((a, b) => addedAt(a) - addedAt(b));
+}
+
 export function createFirestoreData(db: Firestore, clock: Clock) {
   /** Rejects if today has no Order List. */
   function setTodaysOrderListStatus(status: 'open' | 'locked') {
@@ -72,9 +96,14 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
     });
   }
 
+  /** Every Member's lines in an Order List. */
+  function orderLines(orderListId: string) {
+    return collection(db, 'orderLists', orderListId, 'orderLines');
+  }
+
   /** Every Member's lines in today's Order List. */
   function todaysOrderLines() {
-    return collection(db, 'orderLists', toOrderListId(clock()), 'orderLines');
+    return orderLines(toOrderListId(clock()));
   }
 
   return {
@@ -119,15 +148,56 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
       return setTodaysOrderListStatus('open');
     },
 
+    /** Today's Order List id, for watching its Shopping and By member views. */
+    todaysOrderListId() {
+      return toOrderListId(clock());
+    },
+
+    /**
+     * Calls `onItems` now and on every change to an Order List's lines, with each Item and
+     * its total count across all Orders, by Item name. Returns a function that stops watching.
+     */
+    watchShopping(orderListId: string, onItems: (items: ShoppingItem[]) => void) {
+      return onSnapshot(orderLines(orderListId), (snapshot) => {
+        const items = new Map<string, ShoppingItem>();
+        for (const line of snapshot.docs) {
+          const itemId: string = line.get('itemId');
+          const item = items.get(itemId) ?? { itemId, itemName: line.get('itemName'), count: 0 };
+          item.count += 1;
+          items.set(itemId, item);
+        }
+        onItems([...items.values()].sort((a, b) => a.itemId.localeCompare(b.itemId)));
+      });
+    },
+
+    /**
+     * Calls `onOrders` now and on every change to an Order List's lines, with each Member's
+     * Order, by Member name. Returns a function that stops watching.
+     */
+    watchByMember(orderListId: string, onOrders: (orders: MemberOrder[]) => void) {
+      return onSnapshot(orderLines(orderListId), (snapshot) => {
+        const orders = new Map<string, MemberOrder>();
+        for (const line of oldestFirst(snapshot.docs)) {
+          const memberKey: string = line.get('memberKey');
+          const order: MemberOrder = orders.get(memberKey) ?? {
+            memberKey,
+            memberName: line.get('memberName'),
+            itemNames: [],
+          };
+          order.itemNames.push(line.get('itemName'));
+          orders.set(memberKey, order);
+        }
+        onOrders([...orders.values()].sort((a, b) => a.memberKey.localeCompare(b.memberKey)));
+      });
+    },
+
     /**
      * Calls `onOrder` now and on every change to this Member's lines in today's Order List,
      * oldest first. Returns a function that stops watching.
      */
     watchMyOrder(memberKey: string, onOrder: (lines: OrderLine[]) => void) {
-      const addedAt = (line: QueryDocumentSnapshot) =>
-        (line.get('addedAt', { serverTimestamps: 'estimate' }) as Timestamp).toMillis();
       return onSnapshot(query(todaysOrderLines(), where('memberKey', '==', memberKey)), (snapshot) => {
-        const lines = [...snapshot.docs].sort((a, b) => addedAt(a) - addedAt(b));
+        const lines = oldestFirst(snapshot.docs);
         onOrder(lines.map((line) => ({ id: line.id, itemName: line.get('itemName') })));
       });
     },
