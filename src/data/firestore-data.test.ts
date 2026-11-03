@@ -13,12 +13,18 @@ import { connectFirestoreEmulator, doc, getFirestore, setDoc } from 'firebase/fi
 import {
   createFirestoreData,
   isOrderListNotOpenError,
+  type Catalog,
   type Clock,
   type MemberOrder,
   type OrderLine,
   type OrderListStatus,
   type ShoppingItem,
 } from '@/data/firestore-data';
+import { toMember } from '@/hooks/use-member';
+
+// `toMember` lives beside the device storage, which has no native module under Jest. These
+// tests never touch the storage, so an empty stand-in is enough.
+jest.mock('@react-native-async-storage/async-storage', () => ({}));
 
 const projectId = 'demo-orderlist';
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
@@ -29,11 +35,12 @@ let deviceCount = 0;
 /**
  * A device that has seen nothing yet. A device's cache keeps the last status it saw, and
  * a new watcher hears the cache first, so watchers run on fresh devices to see Firestore.
+ * A `devicePort` nothing listens on stands in for a device with no connection.
  */
-function newDevice() {
+function newDevice(devicePort = Number(port)) {
   deviceCount += 1;
   const deviceDb = getFirestore(initializeApp({ projectId }, `device-${deviceCount}`));
-  connectFirestoreEmulator(deviceDb, host, Number(port));
+  connectFirestoreEmulator(deviceDb, host, devicePort);
   return deviceDb;
 }
 
@@ -132,6 +139,24 @@ function firstByMember(clock: Clock) {
       resolve(describeByMember(orders));
     });
   });
+}
+
+/** The first Catalog a watcher sees for a Member, as Item names. */
+function firstCatalog(memberKey: string) {
+  return new Promise<{ usuals: string[]; everythingElse: string[] }>((resolve) => {
+    const data = createFirestoreData(newDevice(), justAfterMidnight);
+    const stop = data.watchCatalog(memberKey, (catalog) => {
+      stop();
+      resolve(catalogNames(catalog));
+    });
+  });
+}
+
+function catalogNames(catalog: Catalog) {
+  return {
+    usuals: catalog.usuals.map((item) => item.name),
+    everythingElse: catalog.everythingElse.map((item) => item.name),
+  };
 }
 
 /** Resolves to whether the Rules refused `change` because the Order List isn't Open. */
@@ -423,3 +448,82 @@ test('adding and removing are refused while the list is Locked, and work again a
   await member.removeOrderLine(juice.id);
   expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Bag of chips']);
 });
+
+test('an Item I order moves into my usuals and out of Everything else', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(sara, 'Juice');
+  await data.addItem(sara, 'Bag of chips');
+  expect(await firstCatalog('ahmed')).toEqual({
+    usuals: [],
+    everythingElse: ['Bag of chips', 'Juice'],
+  });
+
+  await data.addItem(ahmed, 'juice');
+
+  expect(await firstCatalog('ahmed')).toEqual({
+    usuals: ['Juice'],
+    everythingElse: ['Bag of chips'],
+  });
+  expect(await firstCatalog('sara')).toEqual({
+    usuals: ['Bag of chips', 'Juice'],
+    everythingElse: [],
+  });
+});
+
+test('usuals follow the Member, whatever the case of the name', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  const typedFirst = toMember('Ahmed');
+  const typedLater = toMember(' AHMED ');
+
+  await data.addItem(typedFirst!, 'Juice');
+
+  expect(await firstCatalog(typedLater!.key)).toEqual({ usuals: ['Juice'], everythingElse: [] });
+});
+
+test('the Catalog updates live when a teammate adds a new Item', async () => {
+  const data = createFirestoreData(db, justAfterMidnight);
+  await data.openTodaysOrderList();
+  await data.addItem(ahmed, 'Juice');
+  const seen: ReturnType<typeof catalogNames>[] = [];
+
+  await new Promise<void>((resolve) => {
+    const watcher = createFirestoreData(newDevice(), justBeforeMidnight);
+    const stop = watcher.watchCatalog('ahmed', (catalog) => {
+      seen.push(catalogNames(catalog));
+      if (seen.length === 1) {
+        data.addItem(sara, 'Bag of chips');
+      } else {
+        stop();
+        resolve();
+      }
+    });
+  });
+
+  expect(seen).toEqual([
+    { usuals: ['Juice'], everythingElse: [] },
+    { usuals: ['Juice'], everythingElse: ['Bag of chips'] },
+  ]);
+});
+
+test('with no connection, adding, removing, locking and unlocking all fail', async () => {
+  const admin = createFirestoreData(db, justAfterMidnight);
+  await admin.openTodaysOrderList();
+  await admin.addItem(ahmed, 'Juice');
+  const [juice] = await firstOrder(justAfterMidnight, 'ahmed');
+  const offline = createFirestoreData(newDevice(1), justBeforeMidnight);
+
+  /** Resolves to whether `change` failed for a reason other than the Rules refusing it. */
+  const failsOffline = (change: Promise<unknown>) =>
+    change.then(() => false, (error) => !isOrderListNotOpenError(error));
+  const changes = [
+    offline.addItem(ahmed, 'Bag of chips'),
+    offline.removeOrderLine(juice.id),
+    offline.lockTodaysOrderList(),
+    offline.unlockTodaysOrderList(),
+  ];
+  expect(await Promise.all(changes.map(failsOffline))).toEqual([true, true, true, true]);
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Juice']);
+  expect(await firstStatus(justAfterMidnight)).toBe('open');
+}, 60_000);

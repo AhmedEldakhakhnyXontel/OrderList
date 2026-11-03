@@ -7,7 +7,12 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
 import { getAppData } from '@/data/app-data';
-import { isOrderListNotOpenError, type OrderListStatus } from '@/data/firestore-data';
+import {
+  isOrderListNotOpenError,
+  type CatalogItem,
+  type OrderListStatus,
+} from '@/data/firestore-data';
+import { useCatalog } from '@/hooks/use-catalog';
 import { useMember, type Member } from '@/hooks/use-member';
 import { useMyOrder } from '@/hooks/use-my-order';
 import { useTodaysOrderListStatus } from '@/hooks/use-order-list-status';
@@ -26,12 +31,16 @@ const ADMIN_ACTION_LABELS: Record<OrderListStatus, string> = {
   locked: 'Unlock',
 };
 
+/** The most Catalog suggestions shown under the add box. */
+const MAX_SUGGESTIONS = 5;
+
 export default function OrderScreen() {
   const { member, isAdmin, isLoading } = useMember();
   const status = useTodaysOrderListStatus();
   const [isChangingList, setIsChangingList] = useState(false);
   const [adminError, setAdminError] = useState<string | null>(null);
   const myOrder = useMyOrder(member?.key);
+  const catalog = useCatalog(member?.key);
   const theme = useTheme();
   const [typedItem, setTypedItem] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -39,6 +48,14 @@ export default function OrderScreen() {
   // Members change their Order only while today's Order List is Open.
   const isOpen = status === 'open';
   const canAdd = isOpen && !isAdding;
+  // Item ids are lower-cased names, so this matches what's typed in any case.
+  const typedKey = typedItem.trim().toLowerCase();
+  const suggestions =
+    typedKey && catalog
+      ? [...catalog.usuals, ...catalog.everythingElse]
+          .filter((item) => item.id.includes(typedKey))
+          .slice(0, MAX_SUGGESTIONS)
+      : [];
 
   /** Runs one change to this Member's Order; resolves to whether it went through. */
   async function changeMyOrder(change: Promise<void>) {
@@ -56,13 +73,14 @@ export default function OrderScreen() {
     }
   }
 
-  async function addTypedItem(forMember: Member) {
-    if (!typedItem.trim()) {
+  /** Adds the typed Item, or a suggestion for it, and clears the add box once it went through. */
+  async function addTypedItem(forMember: Member, name: string) {
+    if (!name.trim()) {
       setOrderError('Please type an Item name.');
       return;
     }
     setIsAdding(true);
-    if (await changeMyOrder(getAppData().addItem(forMember, typedItem))) {
+    if (await changeMyOrder(getAppData().addItem(forMember, name))) {
       setTypedItem('');
     }
     setIsAdding(false);
@@ -85,6 +103,25 @@ export default function OrderScreen() {
     } finally {
       setIsChangingList(false);
     }
+  }
+
+  /** One chip per Item; tapping a chip adds that Item to this Member's Order. */
+  function renderChips(forMember: Member, items: CatalogItem[]) {
+    return (
+      <ThemedView style={styles.chips}>
+        {items.map((item) => (
+          <Pressable
+            key={item.id}
+            onPress={() => changeMyOrder(getAppData().addItem(forMember, item.name))}
+            disabled={!isOpen}
+            style={({ pressed }) => [!isOpen && styles.disabled, pressed && styles.pressed]}>
+            <ThemedView type="backgroundSelected" style={styles.pill}>
+              <ThemedText type="small">+ {item.name}</ThemedText>
+            </ThemedView>
+          </Pressable>
+        ))}
+      </ThemedView>
+    );
   }
 
   if (isLoading) {
@@ -145,7 +182,7 @@ export default function OrderScreen() {
                 setTypedItem(text);
                 setOrderError(null);
               }}
-              onSubmitEditing={() => addTypedItem(member)}
+              onSubmitEditing={() => addTypedItem(member, typedItem)}
               editable={isOpen}
               placeholder={
                 isOpen ? 'Type an Item, e.g. bag of chips' : "Today's Order List isn't Open"
@@ -155,7 +192,7 @@ export default function OrderScreen() {
               style={[styles.input, { color: theme.text, backgroundColor: theme.backgroundElement }]}
             />
             <Pressable
-              onPress={() => addTypedItem(member)}
+              onPress={() => addTypedItem(member, typedItem)}
               disabled={!canAdd}
               style={({ pressed }) => [!canAdd && styles.disabled, pressed && styles.pressed]}>
               <ThemedView type="backgroundSelected" style={styles.button}>
@@ -163,10 +200,34 @@ export default function OrderScreen() {
               </ThemedView>
             </Pressable>
           </ThemedView>
+          {suggestions.map((item) => (
+            <Pressable
+              key={item.id}
+              onPress={() => addTypedItem(member, item.name)}
+              disabled={!canAdd}
+              style={({ pressed }) => [!canAdd && styles.disabled, pressed && styles.pressed]}>
+              <ThemedText type="small" themeColor="textSecondary" style={styles.suggestion}>
+                ↳ {item.name}
+              </ThemedText>
+            </Pressable>
+          ))}
           {orderError && (
             <ThemedText type="small" themeColor="textSecondary">
               {orderError}
             </ThemedText>
+          )}
+
+          {catalog && catalog.usuals.length > 0 && (
+            <>
+              <ThemedText type="smallBold">Your usuals</ThemedText>
+              {renderChips(member, catalog.usuals)}
+            </>
+          )}
+          {catalog && catalog.everythingElse.length > 0 && (
+            <>
+              <ThemedText type="smallBold">Everything else</ThemedText>
+              {renderChips(member, catalog.everythingElse)}
+            </>
           )}
 
           <ThemedText type="smallBold">My order</ThemedText>
@@ -231,6 +292,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  suggestion: {
+    paddingLeft: Spacing.two,
   },
   input: {
     flex: 1,

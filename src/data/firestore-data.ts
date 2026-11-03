@@ -5,8 +5,8 @@
  */
 
 import {
+  arrayUnion,
   collection,
-  deleteDoc,
   doc,
   documentId,
   getDoc,
@@ -15,7 +15,6 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  updateDoc,
   where,
   type Firestore,
   type QueryDocumentSnapshot,
@@ -30,6 +29,20 @@ export type OrderLine = {
   id: string;
   /** The Item's name as first entered in the Catalog. */
   itemName: string;
+};
+
+/** An Item in the Catalog. */
+export type CatalogItem = {
+  /** The trimmed, lower-cased name. */
+  id: string;
+  /** The name as first entered. */
+  name: string;
+};
+
+/** The Catalog split for one Member: the Items they have ordered before, and the rest. */
+export type Catalog = {
+  usuals: CatalogItem[];
+  everythingElse: CatalogItem[];
 };
 
 /** One Item in an Order List's Shopping view. */
@@ -74,11 +87,12 @@ function oldestFirst(lines: QueryDocumentSnapshot[]) {
 }
 
 export function createFirestoreData(db: Firestore, clock: Clock) {
-  /** Rejects if today has no Order List. */
+  /** Rejects if today has no Order List, or with no connection. */
   function setTodaysOrderListStatus(status: 'open' | 'locked') {
-    return updateDoc(doc(db, 'orderLists', toOrderListId(clock())), {
-      status,
-      updatedAt: serverTimestamp(),
+    const today = doc(db, 'orderLists', toOrderListId(clock()));
+    // A transaction, because offline a plain write waits in the cache and never fails.
+    return runTransaction(db, async (transaction) => {
+      transaction.update(today, { status, updatedAt: serverTimestamp() });
     });
   }
 
@@ -204,9 +218,42 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
     },
 
     /**
-     * Adds an Item to the Member's Order in today's Order List. The name is trimmed; an exact
-     * case-insensitive match reuses the Catalog Item, any other name joins the Catalog.
-     * Rejects if the name is empty, or if the Rules refuse because the Order List isn't Open.
+     * Calls `onCatalog` now and on every change to the Catalog or this Member's usual Items,
+     * with both parts ordered by name, ignoring case. Returns a function that stops watching.
+     */
+    watchCatalog(memberKey: string, onCatalog: (catalog: Catalog) => void) {
+      let items: CatalogItem[] | undefined;
+      let usualIds: string[] | undefined;
+      function report() {
+        if (!items || !usualIds) {
+          return;
+        }
+        const usual = new Set(usualIds);
+        onCatalog({
+          usuals: items.filter((item) => usual.has(item.id)),
+          everythingElse: items.filter((item) => !usual.has(item.id)),
+        });
+      }
+      // Documents come in id order, and an Item's id is its lower-cased name.
+      const stopCatalog = onSnapshot(collection(db, 'catalog'), (snapshot) => {
+        items = snapshot.docs.map((item) => ({ id: item.id, name: item.get('name') }));
+        report();
+      });
+      const stopUsuals = onSnapshot(doc(db, 'usualItems', memberKey), (snapshot) => {
+        usualIds = snapshot.get('itemIds') ?? [];
+        report();
+      });
+      return () => {
+        stopCatalog();
+        stopUsuals();
+      };
+    },
+
+    /**
+     * Adds an Item to the Member's Order in today's Order List and to their usual Items. The
+     * name is trimmed; an exact case-insensitive match reuses the Catalog Item, any other name
+     * joins the Catalog. Rejects if the name is empty, or if the Rules refuse because the Order
+     * List isn't Open.
      */
     async addItem(member: { key: string; name: string }, typedName: string) {
       const name = typedName.trim();
@@ -215,7 +262,8 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
       }
       const item = doc(db, 'catalog', name.toLowerCase());
       const line = doc(todaysOrderLines());
-      // One write: a refused line leaves the Catalog unchanged.
+      const usuals = doc(db, 'usualItems', member.key);
+      // One write: a refused line leaves the Catalog and usual Items unchanged.
       await runTransaction(db, async (transaction) => {
         const existing = await transaction.get(item);
         if (!existing.exists()) {
@@ -228,12 +276,20 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
           itemName: existing.exists() ? existing.get('name') : name,
           addedAt: serverTimestamp(),
         });
+        transaction.set(usuals, { itemIds: arrayUnion(item.id) }, { merge: true });
       });
     },
 
-    /** Removes one line from today's Order List. Rejects if the Rules refuse because it isn't Open. */
+    /**
+     * Removes one line from today's Order List. Rejects with no connection, or if the Rules
+     * refuse because it isn't Open.
+     */
     removeOrderLine(lineId: string) {
-      return deleteDoc(doc(todaysOrderLines(), lineId));
+      const line = doc(todaysOrderLines(), lineId);
+      // A transaction, because offline a plain write waits in the cache and never fails.
+      return runTransaction(db, async (transaction) => {
+        transaction.delete(line);
+      });
     },
 
     /** Resolves to whether `pin` is the Admin PIN, read from Firestore and compared on the device. */
