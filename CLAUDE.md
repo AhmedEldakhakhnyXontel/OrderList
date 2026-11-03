@@ -47,15 +47,16 @@ These rules grant the authority to commit, push and merge that the Beads "Conser
 
 - **`main` is protected and human-only**: never commit to, push to, merge into, or open a PR against `main`.
 - **`develop` is the base branch**: all ticket work branches off it and lands on it through a merged PR. The main checkout stays on `develop` and holds no ticket work.
-- **One worktree per ticket**: `git worktree add .worktrees/<ticket-id> -b <type>/<ticket-id>-<short-slug> develop` (e.g. `.worktrees/OrderList-df2.1` on `feat/OrderList-df2.1-name-entry`; `.worktrees/` is gitignored). Then copy the gitignored `.env.local` and `expo-env.d.ts` in from the main checkout and run `npm ci` in the worktree.
+- **One worktree per ticket**: `git worktree add .worktrees/<ticket-id> -b <type>/<ticket-id>-<short-slug> develop` (e.g. `.worktrees/OrderList-df2.1` on `feat/OrderList-df2.1-name-entry`; `.worktrees/` is gitignored). Then copy the gitignored `.env.local` and `expo-env.d.ts` in from the main checkout and run `npm install` in the worktree.
 - **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<optional scope>): <summary>`, with types such as `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
 - **Micro commits**: when a change is large or spans more than one ticket, split it into small commits, one logical change (and at most one ticket) each, so each can be reviewed and reverted on its own. Don't run the gates on each micro commit; run them on the branch tip and on the merge result before it lands on `develop`.
-- **Gates**: `npm ci`, `npm run lint`, `npx tsc --noEmit`, `npx expo export`, run in the worktree.
+- **Gates**: `npm install`, `npm run lint`, `npx tsc --noEmit`, `npx expo export`, run in the worktree.
 - **Landing**: when a ticket is done, the main conversation reads the worker's result and spawns the `closer` subagent (`.claude/agents/closer.md`) with the worktree path and the ticket id, one closer at a time so merges into `develop` stay serialised. The closer pushes the branch, merges it into `develop` through a PR once the `gater` (`.claude/agents/gater.md`) reports the gates pass, closes the bead, and spawns the `cleaner` (`.claude/agents/cleaner.md`) to remove the worktree.
 - **Manual checks never block landing**: once a ticket's gates and automated tests pass, land it without waiting for the person's manual check, so dependent tickets unblock. Then give the person the manual check as an optional step with exact instructions. See `docs/common-practices.md`.
 - **Recap**: after each closer finishes (landed or halted) and after any worker fails, the main conversation spawns the `recapper` (`.claude/agents/recapper.md`) with the session's ticket ids and a note of what happened, and shows its recap to the person.
 - **Never delete branches**, locally or on the remote, including after a merge.
 - **Parallel agents**: run at most 3 at once.
+- **`npm install`, never `npm ci`**: `npm install` reuses the modules already installed instead of deleting them first. When a merged branch changed `package.json` or `package-lock.json`, the closer runs `npm install` in the main checkout right after updating `develop`, so its `node_modules` match.
 
 ## Documentation
 

@@ -7,6 +7,12 @@
     "icon": "./assets/images/icon.png",
     "scheme": "orderlist",
     "userInterfaceStyle": "automatic",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/740228a7-db19-4778-afd0-0f65c1fb6ef0"
+    },
     "ios": {
       "icon": "./assets/expo.icon"
     },

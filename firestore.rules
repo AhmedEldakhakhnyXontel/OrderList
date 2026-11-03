@@ -8,5 +8,11 @@ service cloud.firestore {
     match /orderLists/{orderListId} {
       allow read, write: if true;
     }
+
+    // The Admin PIN (field pin), set in the Firebase console. Clients read it to check the
+    // PIN on the device, but never write it.
+    match /config/admin {
+      allow read: if true;
+    }
   }
 }
