@@ -67,6 +67,23 @@ export function isOrderListNotOpenError(error: unknown) {
   return (error as { code?: unknown } | null)?.code === 'permission-denied';
 }
 
+/**
+ * Why a typed name can't be an Item, or null if it can. Its Catalog id (the trimmed, lower-cased
+ * name) must be a valid Firestore document id.
+ */
+export function itemNameProblem(typedName: string) {
+  const id = typedName.trim().toLowerCase();
+  const isBadId =
+    id.includes('/') ||
+    id === '.' ||
+    id === '..' ||
+    /^__.*__$/.test(id) ||
+    new TextEncoder().encode(id).length > 1500;
+  return isBadId
+    ? 'An Item name can\'t contain "/", be "." or "..", start and end with "__", or be too long.'
+    : null;
+}
+
 /** Returns the current time; "today" is its local date. */
 export type Clock = () => Date;
 
@@ -252,13 +269,17 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
     /**
      * Adds an Item to the Member's Order in today's Order List and to their usual Items. The
      * name is trimmed; an exact case-insensitive match reuses the Catalog Item, any other name
-     * joins the Catalog. Rejects if the name is empty, or if the Rules refuse because the Order
-     * List isn't Open.
+     * joins the Catalog. Rejects if the name is empty or has an `itemNameProblem`, or if the
+     * Rules refuse because the Order List isn't Open.
      */
     async addItem(member: { key: string; name: string }, typedName: string) {
       const name = typedName.trim();
       if (!name) {
         throw new Error('An Item name cannot be empty.');
+      }
+      const problem = itemNameProblem(name);
+      if (problem) {
+        throw new Error(problem);
       }
       const item = doc(db, 'catalog', name.toLowerCase());
       const line = doc(todaysOrderLines());
