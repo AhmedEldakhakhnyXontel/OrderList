@@ -6,6 +6,7 @@
 
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -16,10 +17,24 @@ import {
   updateDoc,
   where,
   type Firestore,
+  type QueryDocumentSnapshot,
+  type Timestamp,
 } from 'firebase/firestore';
 
 /** The status pill's states for today's Order List. */
 export type OrderListStatus = 'none' | 'open' | 'locked';
+
+/** One Item a Member added; adding the same Item twice gives two lines. */
+export type OrderLine = {
+  id: string;
+  /** The Item's name as first entered in the Catalog. */
+  itemName: string;
+};
+
+/** True when the Rules refused a change to an Order because its Order List isn't Open. */
+export function isOrderListNotOpenError(error: unknown) {
+  return (error as { code?: unknown } | null)?.code === 'permission-denied';
+}
 
 /** Returns the current time; "today" is its local date. */
 export type Clock = () => Date;
@@ -40,6 +55,11 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
       status,
       updatedAt: serverTimestamp(),
     });
+  }
+
+  /** Every Member's lines in today's Order List. */
+  function todaysOrderLines() {
+    return collection(db, 'orderLists', toOrderListId(clock()), 'orderLines');
   }
 
   return {
@@ -82,6 +102,52 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
     /** Unlocks today's Order List, so Members can change their Orders again. */
     unlockTodaysOrderList() {
       return setTodaysOrderListStatus('open');
+    },
+
+    /**
+     * Calls `onOrder` now and on every change to this Member's lines in today's Order List,
+     * oldest first. Returns a function that stops watching.
+     */
+    watchMyOrder(memberKey: string, onOrder: (lines: OrderLine[]) => void) {
+      const addedAt = (line: QueryDocumentSnapshot) =>
+        (line.get('addedAt', { serverTimestamps: 'estimate' }) as Timestamp).toMillis();
+      return onSnapshot(query(todaysOrderLines(), where('memberKey', '==', memberKey)), (snapshot) => {
+        const lines = [...snapshot.docs].sort((a, b) => addedAt(a) - addedAt(b));
+        onOrder(lines.map((line) => ({ id: line.id, itemName: line.get('itemName') })));
+      });
+    },
+
+    /**
+     * Adds an Item to the Member's Order in today's Order List. The name is trimmed; an exact
+     * case-insensitive match reuses the Catalog Item, any other name joins the Catalog.
+     * Rejects if the name is empty, or if the Rules refuse because the Order List isn't Open.
+     */
+    async addItem(member: { key: string; name: string }, typedName: string) {
+      const name = typedName.trim();
+      if (!name) {
+        throw new Error('An Item name cannot be empty.');
+      }
+      const item = doc(db, 'catalog', name.toLowerCase());
+      const line = doc(todaysOrderLines());
+      // One write: a refused line leaves the Catalog unchanged.
+      await runTransaction(db, async (transaction) => {
+        const existing = await transaction.get(item);
+        if (!existing.exists()) {
+          transaction.set(item, { name });
+        }
+        transaction.set(line, {
+          memberKey: member.key,
+          memberName: member.name,
+          itemId: item.id,
+          itemName: existing.exists() ? existing.get('name') : name,
+          addedAt: serverTimestamp(),
+        });
+      });
+    },
+
+    /** Removes one line from today's Order List. Rejects if the Rules refuse because it isn't Open. */
+    removeOrderLine(lineId: string) {
+      return deleteDoc(doc(todaysOrderLines(), lineId));
     },
 
     /** Resolves to whether `pin` is the Admin PIN, read from Firestore and compared on the device. */
