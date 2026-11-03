@@ -89,6 +89,36 @@ function describeByMember(orders: MemberOrder[]) {
   return orders.map((order) => `${order.memberName}: ${order.itemNames.join(', ')}`);
 }
 
+/** The first History a watcher sees: the dates of past Order Lists. */
+function firstPastOrderLists(clock: Clock) {
+  return new Promise<string[]>((resolve) => {
+    const stop = createFirestoreData(newDevice(), clock).watchPastOrderLists((orderListIds) => {
+      stop();
+      resolve(orderListIds);
+    });
+  });
+}
+
+/** The first Shopping and By member views a watcher of any Order List sees. */
+async function firstViews(orderListId: string) {
+  const data = createFirestoreData(newDevice(), justAfterMidnight);
+  const [shopping, byMember] = await Promise.all([
+    new Promise<string[]>((resolve) => {
+      const stop = data.watchShopping(orderListId, (items) => {
+        stop();
+        resolve(describeShopping(items));
+      });
+    }),
+    new Promise<string[]>((resolve) => {
+      const stop = data.watchByMember(orderListId, (orders) => {
+        stop();
+        resolve(describeByMember(orders));
+      });
+    }),
+  ]);
+  return { shopping, byMember };
+}
+
 /** The first Shopping view a watcher of today's Order List sees. */
 function firstShopping(clock: Clock) {
   return new Promise<string[]>((resolve) => {
@@ -374,6 +404,31 @@ test('Shopping and By member update live as Members add and remove Items', async
     ['Ahmed: Juice', 'Sara: Bag of chips'],
     ['Sara: Bag of chips'],
   ]);
+});
+
+test("History lists past Order Lists newest first, without today's", async () => {
+  // A Friday, then the weekend with no list, then Sunday's and Monday's.
+  await createFirestoreData(db, () => new Date(2026, 9, 30, 12, 0)).openTodaysOrderList();
+  await createFirestoreData(db, theDayBefore).openTodaysOrderList();
+  await createFirestoreData(db, justAfterMidnight).openTodaysOrderList();
+
+  expect(await firstPastOrderLists(justBeforeMidnight)).toEqual(['2026-11-01', '2026-10-30']);
+});
+
+test("a past Order List's Shopping and By member views stay readable from History", async () => {
+  const yesterday = createFirestoreData(db, theDayBefore);
+  await yesterday.openTodaysOrderList();
+  await yesterday.addItem(ahmed, 'Juice');
+  await yesterday.addItem(sara, 'Juice');
+  const today = createFirestoreData(db, justAfterMidnight);
+  await today.openTodaysOrderList();
+  await today.addItem(ahmed, 'Bag of chips');
+
+  const [pastOrderListId] = await firstPastOrderLists(justBeforeMidnight);
+  expect(await firstViews(pastOrderListId)).toEqual({
+    shopping: ['2 Juice'],
+    byMember: ['Ahmed: Juice', 'Sara: Juice'],
+  });
 });
 
 test('adding and removing are refused while the list is Locked, and work again after unlock', async () => {

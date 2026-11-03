@@ -20,3 +20,12 @@ export function useByMember(orderListId: string) {
 
   return orders;
 }
+
+/** The ids (dates) of past Order Lists, newest first, updated live. `null` until the first answer from Firestore. */
+export function usePastOrderLists() {
+  const [orderListIds, setOrderListIds] = useState<string[] | null>(null);
+
+  useEffect(() => getAppData().watchPastOrderLists(setOrderListIds), []);
+
+  return orderListIds;
+}
