@@ -29,11 +29,12 @@ let deviceCount = 0;
 /**
  * A device that has seen nothing yet. A device's cache keeps the last status it saw, and
  * a new watcher hears the cache first, so watchers run on fresh devices to see Firestore.
+ * A `devicePort` nothing listens on stands in for a device with no connection.
  */
-function newDevice() {
+function newDevice(devicePort = Number(port)) {
   deviceCount += 1;
   const deviceDb = getFirestore(initializeApp({ projectId }, `device-${deviceCount}`));
-  connectFirestoreEmulator(deviceDb, host, Number(port));
+  connectFirestoreEmulator(deviceDb, host, devicePort);
   return deviceDb;
 }
 
@@ -368,3 +369,24 @@ test('adding and removing are refused while the list is Locked, and work again a
   await member.removeOrderLine(juice.id);
   expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Bag of chips']);
 });
+
+test('with no connection, adding, removing, locking and unlocking all fail', async () => {
+  const admin = createFirestoreData(db, justAfterMidnight);
+  await admin.openTodaysOrderList();
+  await admin.addItem(ahmed, 'Juice');
+  const [juice] = await firstOrder(justAfterMidnight, 'ahmed');
+  const offline = createFirestoreData(newDevice(1), justBeforeMidnight);
+
+  /** Resolves to whether `change` failed for a reason other than the Rules refusing it. */
+  const failsOffline = (change: Promise<unknown>) =>
+    change.then(() => false, (error) => !isOrderListNotOpenError(error));
+  const changes = [
+    offline.addItem(ahmed, 'Bag of chips'),
+    offline.removeOrderLine(juice.id),
+    offline.lockTodaysOrderList(),
+    offline.unlockTodaysOrderList(),
+  ];
+  expect(await Promise.all(changes.map(failsOffline))).toEqual([true, true, true, true]);
+  expect(await firstItemNames(justAfterMidnight, 'ahmed')).toEqual(['Juice']);
+  expect(await firstStatus(justAfterMidnight)).toBe('open');
+}, 60_000);
