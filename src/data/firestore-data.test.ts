@@ -20,10 +20,9 @@ import {
 } from '@/data/firestore-data';
 import { toMember } from '@/hooks/use-member';
 
-// `toMember` lives beside the device storage, which has no native module under Jest.
-jest.mock('@react-native-async-storage/async-storage', () =>
-  require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
-);
+// `toMember` lives beside the device storage, which has no native module under Jest. These
+// tests never touch the storage, so an empty stand-in is enough.
+jest.mock('@react-native-async-storage/async-storage', () => ({}));
 
 const projectId = 'demo-orderlist';
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST ?? '127.0.0.1:8080';
