@@ -5,6 +5,7 @@
  */
 
 import {
+  arrayUnion,
   collection,
   doc,
   getDoc,
@@ -27,6 +28,20 @@ export type OrderLine = {
   id: string;
   /** The Item's name as first entered in the Catalog. */
   itemName: string;
+};
+
+/** An Item in the Catalog. */
+export type CatalogItem = {
+  /** The trimmed, lower-cased name. */
+  id: string;
+  /** The name as first entered. */
+  name: string;
+};
+
+/** The Catalog split for one Member: the Items they have ordered before, and the rest. */
+export type Catalog = {
+  usuals: CatalogItem[];
+  everythingElse: CatalogItem[];
 };
 
 /** One Item in an Order List's Shopping view. */
@@ -187,9 +202,42 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
     },
 
     /**
-     * Adds an Item to the Member's Order in today's Order List. The name is trimmed; an exact
-     * case-insensitive match reuses the Catalog Item, any other name joins the Catalog.
-     * Rejects if the name is empty, or if the Rules refuse because the Order List isn't Open.
+     * Calls `onCatalog` now and on every change to the Catalog or this Member's usual Items,
+     * with both parts ordered by name, ignoring case. Returns a function that stops watching.
+     */
+    watchCatalog(memberKey: string, onCatalog: (catalog: Catalog) => void) {
+      let items: CatalogItem[] | undefined;
+      let usualIds: string[] | undefined;
+      function report() {
+        if (!items || !usualIds) {
+          return;
+        }
+        const usual = new Set(usualIds);
+        onCatalog({
+          usuals: items.filter((item) => usual.has(item.id)),
+          everythingElse: items.filter((item) => !usual.has(item.id)),
+        });
+      }
+      // Documents come in id order, and an Item's id is its lower-cased name.
+      const stopCatalog = onSnapshot(collection(db, 'catalog'), (snapshot) => {
+        items = snapshot.docs.map((item) => ({ id: item.id, name: item.get('name') }));
+        report();
+      });
+      const stopUsuals = onSnapshot(doc(db, 'usualItems', memberKey), (snapshot) => {
+        usualIds = snapshot.get('itemIds') ?? [];
+        report();
+      });
+      return () => {
+        stopCatalog();
+        stopUsuals();
+      };
+    },
+
+    /**
+     * Adds an Item to the Member's Order in today's Order List and to their usual Items. The
+     * name is trimmed; an exact case-insensitive match reuses the Catalog Item, any other name
+     * joins the Catalog. Rejects if the name is empty, or if the Rules refuse because the Order
+     * List isn't Open.
      */
     async addItem(member: { key: string; name: string }, typedName: string) {
       const name = typedName.trim();
@@ -198,7 +246,8 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
       }
       const item = doc(db, 'catalog', name.toLowerCase());
       const line = doc(todaysOrderLines());
-      // One write: a refused line leaves the Catalog unchanged.
+      const usuals = doc(db, 'usualItems', member.key);
+      // One write: a refused line leaves the Catalog and usual Items unchanged.
       await runTransaction(db, async (transaction) => {
         const existing = await transaction.get(item);
         if (!existing.exists()) {
@@ -211,6 +260,7 @@ export function createFirestoreData(db: Firestore, clock: Clock) {
           itemName: existing.exists() ? existing.get('name') : name,
           addedAt: serverTimestamp(),
         });
+        transaction.set(usuals, { itemIds: arrayUnion(item.id) }, { merge: true });
       });
     },
 
